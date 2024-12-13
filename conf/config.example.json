@@ -1,0 +1,7 @@
+{
+  "api_key": "your_api_key_here",
+  "model_name": "qwen-plus",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+  "ding_webhook": "https://oapi.dingtalk.com/robot/send?access_token=your_access_token_here",
+  "ding_secret": "your_ding_secret_here"
+}
