@@ -37,6 +37,19 @@ type DingConfig struct {
 	Secret  string `json:"secret"`
 }
 
+// 添加评审模板配置结构
+type ReviewTemplate struct {
+	SystemPrompt string   `json:"system_prompt"`
+	FocusPoints  []string `json:"focus_points"`
+}
+
+type ReviewConfig struct {
+	Template       string                    `json:"template"`
+	Templates      map[string]ReviewTemplate `json:"templates"`
+	IgnorePatterns []string                  `json:"ignore_patterns"`
+	MaxDiffSize    int                       `json:"max_diff_size"`
+}
+
 // Config 配置文件结构体
 type Config struct {
 	APIKey    string       `json:"api_key"`
@@ -45,6 +58,7 @@ type Config struct {
 	Ding      DingConfig   `json:"ding"`
 	Output    OutputConfig `json:"output"`
 	Cache     CacheConfig  `json:"cache"`
+	Review    ReviewConfig `json:"review"`
 }
 
 // 全局配置
@@ -245,46 +259,37 @@ func sendDingMessage(message string) error {
 	return nil
 }
 
+// 添加文件过滤功能
+func shouldIgnoreFile(filename string) bool {
+	for _, pattern := range config.Review.IgnorePatterns {
+		matched, err := filepath.Match(pattern, filename)
+		if err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
 // 修改代码评审函数
 func performCodeReview(diffContent string) (string, error) {
-	// 检查缓存
-	if result, err := checkCache(diffContent); err == nil && result != "" {
-		log.Println("Using cached review result")
-		return result, nil
+	// 检查 diff 大小
+	if len(diffContent) > config.Review.MaxDiffSize {
+		return "", fmt.Errorf("diff 内容超过最大限制 (%d > %d bytes)",
+			len(diffContent), config.Review.MaxDiffSize)
+	}
+
+	// 获取模板
+	template, ok := config.Review.Templates[config.Review.Template]
+	if !ok {
+		template = config.Review.Templates["default"]
 	}
 
 	payload := RequestBody{
 		Model: config.ModelName,
 		Messages: []Message{
 			{
-				Role: "system",
-				Content: `你是一个经验丰富的高级编程架构师，请根据提供的 git diff 内容进行代码评审。
-请按照以下模板格式输出评审结果：
-
-## 代码变更概述
-[简要描述本次代码变更的主要内容]
-
-## 主要问题
-1. [问题1]
-   - 影响: [描述影响]
-   - 建议: [修改建议]
-2. [问题2]
-   ...
-
-## 代码质量评估
-- 可读性: [高/中/低] 
-- 可维护性: [高/中/低]
-- 安全性: [高/中/低]
-
-## 优化建议
-1. [具体的优化建议1]
-2. [具体的优化建议2]
-...
-
-## 其他注意事项
-[其他需要注意的点]
-
-请确保评审意见具体、清晰、可操作。`,
+				Role:    "system",
+				Content: template.SystemPrompt,
 			},
 			{
 				Role:    "user",
@@ -295,6 +300,12 @@ func performCodeReview(diffContent string) (string, error) {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	// 检查缓存
+	if result, err := checkCache(diffContent); err == nil && result != "" {
+		log.Println("Using cached review result")
+		return result, nil
 	}
 
 	// 发送审查请求
@@ -337,24 +348,63 @@ func performCodeReview(diffContent string) (string, error) {
 	return "No review results returned.", nil
 }
 
-// 添加统计分析函数
+// 扩展统计分析功能
 func analyzeReviewStats(diffContent string, reviewResult string) (*ReviewStats, error) {
 	stats := &ReviewStats{
 		IssuesByLevel:  make(map[string]int),
+		CommonIssues:   make([]string, 0),
 		ReviewDateTime: time.Now(),
 	}
 
 	// 分析 diff 内容
+	var currentFile string
+	changedFiles := make(map[string]bool)
+
 	lines := strings.Split(diffContent, "\n")
 	for _, line := range lines {
-		if strings.HasPrefix(line, "+") {
+		if strings.HasPrefix(line, "diff --git") {
+			parts := strings.Split(line, " ")
+			if len(parts) > 2 {
+				currentFile = strings.TrimPrefix(parts[2], "b/")
+				if !shouldIgnoreFile(currentFile) {
+					changedFiles[currentFile] = true
+				}
+			}
+		} else if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
 			stats.LinesAdded++
-		} else if strings.HasPrefix(line, "-") {
+		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
 			stats.LinesDeleted++
 		}
 	}
+	stats.FilesChanged = len(changedFiles)
 
-	// ... 其他统计逻辑 ...
+	// 分析评审结果
+	sections := strings.Split(reviewResult, "##")
+	for _, section := range sections {
+		section = strings.TrimSpace(section)
+		if strings.HasPrefix(section, "主要问题") {
+			// 统计问题级别
+			if strings.Contains(section, "严重") {
+				stats.IssuesByLevel["严重"]++
+			} else if strings.Contains(section, "中等") {
+				stats.IssuesByLevel["中等"]++
+			} else if strings.Contains(section, "低") {
+				stats.IssuesByLevel["低"]++
+			}
+
+			// 提取常见问题
+			lines := strings.Split(section, "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "1.") || strings.HasPrefix(line, "2.") {
+					issue := strings.TrimSpace(strings.TrimPrefix(line, "1."))
+					issue = strings.TrimSpace(strings.TrimPrefix(issue, "2."))
+					if issue != "" {
+						stats.CommonIssues = append(stats.CommonIssues, issue)
+					}
+				}
+			}
+		}
+	}
 
 	return stats, nil
 }
@@ -420,12 +470,47 @@ func main() {
 	reviewResult, err := performCodeReview(diffContent.String())
 	if err != nil {
 		log.Printf("Code review failed: %v", err)
-		fmt.Print("No valid review result.\n") // 明确的错误输出
+		fmt.Print("No valid review result.\n")
 		return
+	}
+
+	// 获取 Git 信息
+	gitInfo, err := getGitInfo()
+	if err != nil {
+		log.Printf("Failed to get git info: %v", err)
+	}
+
+	// 分析统计信息
+	stats, err := analyzeReviewStats(diffContent.String(), reviewResult)
+	if err != nil {
+		log.Printf("Failed to analyze review stats: %v", err)
+	}
+
+	// 保存历史记录
+	history := &ReviewHistory{
+		ID:           calculateHash(diffContent.String())[:8],
+		GitInfo:      gitInfo,
+		ReviewStats:  stats,
+		ReviewResult: reviewResult,
+		DateTime:     time.Now(),
+	}
+
+	if err := saveReviewHistory(history); err != nil {
+		log.Printf("Failed to save review history: %v", err)
 	}
 
 	// 输出评审结果
 	fmt.Println(reviewResult)
+
+	// 输出统计信息
+	fmt.Printf("\n统计信息:\n")
+	fmt.Printf("- 变更文件数: %d\n", stats.FilesChanged)
+	fmt.Printf("- 新增行数: %d\n", stats.LinesAdded)
+	fmt.Printf("- 删除行数: %d\n", stats.LinesDeleted)
+	fmt.Printf("- 问题分布:\n")
+	for level, count := range stats.IssuesByLevel {
+		fmt.Printf("  - %s: %d\n", level, count)
+	}
 
 	// 发送钉钉消息（如果启用）
 	if err := sendDingMessage(reviewResult); err != nil {
