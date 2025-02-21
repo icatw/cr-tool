@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 	"github.com/icatw/cr-tool/pkg/config"
 	"github.com/icatw/cr-tool/pkg/review"
@@ -30,12 +31,7 @@ func (e *PDFExporter) Export(history *review.ReviewHistory) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("生成 HTML 失败: %w", err)
 	}
-
-	// 读取 HTML 内容
-	htmlContent, err := os.ReadFile(htmlPath)
-	if err != nil {
-		return "", fmt.Errorf("读取 HTML 文件失败: %w", err)
-	}
+	defer os.Remove(htmlPath) // 清理临时 HTML 文件
 
 	// 创建输出目录
 	outputDir := e.config.Output.Dir
@@ -60,12 +56,18 @@ func (e *PDFExporter) Export(history *review.ReviewHistory) (string, error) {
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate(fmt.Sprintf("file://%s", htmlPath)),
 		chromedp.WaitReady("body"),
-		chromedp.PDF(&pdfData, chromedp.PDFOptions{
-			PrintBackground: true,
-			MarginTop:       0.4,
-			MarginBottom:    0.4,
-			MarginLeft:      0.4,
-			MarginRight:     0.4,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			buf, _, err := page.PrintToPDF().WithPrintBackground(true).
+				WithMarginTop(0.4).
+				WithMarginBottom(0.4).
+				WithMarginLeft(0.4).
+				WithMarginRight(0.4).
+				Do(ctx)
+			if err != nil {
+				return err
+			}
+			pdfData = buf
+			return nil
 		}),
 	); err != nil {
 		return "", fmt.Errorf("生成 PDF 失败: %w", err)
@@ -75,9 +77,6 @@ func (e *PDFExporter) Export(history *review.ReviewHistory) (string, error) {
 	if err := os.WriteFile(outputPath, pdfData, 0644); err != nil {
 		return "", fmt.Errorf("保存 PDF 文件失败: %w", err)
 	}
-
-	// 清理临时 HTML 文件
-	os.Remove(htmlPath)
 
 	return outputPath, nil
 }
