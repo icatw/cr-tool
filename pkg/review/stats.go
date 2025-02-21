@@ -1,16 +1,15 @@
 package review
 
 import (
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/cr/internal/model"
 )
 
 // analyzeStats 分析评审统计信息
-func (r *Reviewer) analyzeStats(diffContent, reviewResult string) (*model.ReviewStats, error) {
-	stats := &model.ReviewStats{
+func (r *Reviewer) analyzeStats(diffContent, reviewResult string) (*ReviewStats, error) {
+	stats := &ReviewStats{
 		IssuesByLevel:  make(map[string]int),
 		CommonIssues:   make([]string, 0),
 		ReviewDateTime: time.Now(),
@@ -67,6 +66,32 @@ func (r *Reviewer) analyzeStats(diffContent, reviewResult string) (*model.Review
 	}
 
 	return stats, nil
+}
+
+// getGitInfo 获取 Git 信息
+func (r *Reviewer) getGitInfo() (*GitInfo, error) {
+	gitInfo := &GitInfo{}
+
+	// 获取当前分支
+	output, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return nil, err
+	}
+	gitInfo.Branch = strings.TrimSpace(string(output))
+
+	// 获取最近的提交信息
+	output, err = exec.Command("git", "log", "-1", "--pretty=format:%H|%s|%an").Output()
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(string(output), "|")
+	if len(parts) == 3 {
+		gitInfo.CommitHash = parts[0]
+		gitInfo.CommitMessage = parts[1]
+		gitInfo.Author = parts[2]
+	}
+
+	return gitInfo, nil
 }
 
 // shouldIgnoreFile 检查是否应该忽略文件

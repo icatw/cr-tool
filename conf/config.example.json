@@ -9,18 +9,7 @@
   },
   "output": {
     "dir": "./review_results",
-    "format": ["markdown", "html", "pdf"],
-    "reports": {
-      "include_git_info": true,
-      "include_stats": true,
-      "template": "default",
-      "css_template": "github",
-      "pdf_options": {
-        "page_size": "A4",
-        "with_line_numbers": true,
-        "highlight_changes": true
-      }
-    }
+    "format": "markdown"
   },
   "cache": {
     "enabled": true,
@@ -31,7 +20,7 @@
     "template": "default",
     "templates": {
       "default": {
-        "system_prompt": "你是一个经验丰富的高级编程架构师，请根据提供的 git diff 内容进行代码评审。请按照以下模板格式输出评审结果：\n\n## 代码变更概述\n[简要描述本次代码变更的主要内容]\n\n## 主要问题\n1. [问题1]\n   - 影响: [描述影响]\n   - 建议: [修改建议]\n2. [问题2]\n   ...\n\n## 代码质量评估\n- 可读性: [高/中/低] \n- 可维护性: [高/中/低]\n- 安全性: [高/中/低]\n\n## 优化建议\n1. [具体的优化建议1]\n2. [具体的优化建议2]\n...\n\n## 其他注意事项\n[其他需要注意的点]\n\n请确保评审意见具体、清晰、可操作。",
+        "system_prompt": "你是一个经验丰富的高级编程架构师...",
         "focus_points": ["安全性", "性能", "可维护性"]
       },
       "security": {

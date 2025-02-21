@@ -2,32 +2,36 @@ package exporter
 
 import (
 	"fmt"
-	"github.com/cr/internal/config"
-	"github.com/cr/internal/model"
 	"html/template"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/icatw/cr-tool/pkg/config"
+	"github.com/icatw/cr-tool/pkg/review"
 )
 
 type HTMLExporter struct {
-	cssTemplate string
+	config *config.Config
 }
 
 func NewHTMLExporter() *HTMLExporter {
 	return &HTMLExporter{
-		cssTemplate: config.Get().Output.Reports.CSSTemplate,
+		config: config.Get(),
 	}
 }
 
-func (e *HTMLExporter) Export(history *model.ReviewHistory) (string, error) {
+func (e *HTMLExporter) Export(history *review.ReviewHistory) (string, error) {
 	var b strings.Builder
 
 	// 添加 HTML 头部和样式
 	b.WriteString(fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
-	<meta charset="UTF-8">
-	<title>代码评审报告</title>
-	<style>%s</style>
+    <meta charset="UTF-8">
+    <title>代码评审报告</title>
+    <style>%s</style>
 </head>
 <body>
 <div class="container">`, e.getCSS()))
@@ -104,98 +108,107 @@ func (e *HTMLExporter) Export(history *model.ReviewHistory) (string, error) {
 	b.WriteString(`</div>
 	</div>`)
 
-	// 页脚
+	// 添加页脚
 	b.WriteString(fmt.Sprintf(`
 		<div class="footer">
-			<p>生成时间：%s</p>
+			生成时间：%s
 		</div>
-	</div></body></html>`, history.DateTime.Format("2006-01-02 15:04:05")))
+	</div></body></html>`, time.Now().Format("2006-01-02 15:04:05")))
 
-	return b.String(), nil
+	// 保存文件
+	outputDir := e.config.Output.Dir
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("创建输出目录失败: %w", err)
+	}
+
+	filename := fmt.Sprintf("%s_review.html", time.Now().Format("20060102_150405"))
+	outputPath := filepath.Join(outputDir, filename)
+
+	if err := os.WriteFile(outputPath, []byte(b.String()), 0644); err != nil {
+		return "", fmt.Errorf("保存评审报告失败: %w", err)
+	}
+
+	return outputPath, nil
 }
 
+// getCSS 获取 CSS 样式
 func (e *HTMLExporter) getCSS() string {
-	switch e.cssTemplate {
-	case "github":
-		return `
-			:root { --border-color: #e1e4e8; --bg-color: #f6f8fa; }
-			body { 
-				font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;
-				line-height: 1.6;
-				color: #24292e;
-				margin: 0;
-				padding: 0;
-			}
-			.container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-			h1, h2, h3 { margin-top: 1.5em; margin-bottom: 1em; }
-			.git-info { 
-				background: var(--bg-color);
-				border: 1px solid var(--border-color);
-				border-radius: 6px;
-				padding: 1rem;
-				margin: 1rem 0;
-			}
-			.git-info table { width: 100%; border-collapse: collapse; }
-			.git-info td { padding: 0.5rem; border: none; }
-			.git-info td:first-child { width: 100px; color: #666; }
-			.stats-grid {
-				display: grid;
-				grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-				gap: 1rem;
-				margin: 1rem 0;
-			}
-			.stat-item {
-				background: var(--bg-color);
-				border: 1px solid var(--border-color);
-				border-radius: 6px;
-				padding: 1rem;
-				text-align: center;
-			}
-			.stat-value { font-size: 2rem; font-weight: bold; }
-			.stat-label { color: #666; margin-top: 0.5rem; }
-			.issues-by-level {
-				display: flex;
-				gap: 1rem;
-				margin: 1rem 0;
-			}
-			.issue-level {
-				padding: 0.5rem 1rem;
-				border-radius: 6px;
-				display: flex;
-				gap: 0.5rem;
-				align-items: center;
-			}
-			.issue-level.严重 { background: #ffebe9; color: #cf222e; }
-			.issue-level.中等 { background: #fff8c5; color: #9a6700; }
-			.issue-level.低 { background: #ddf4ff; color: #0969da; }
-			.review-result { margin-top: 2rem; }
-			.markdown-body {
-				background: white;
-				padding: 1rem;
-				border: 1px solid var(--border-color);
-				border-radius: 6px;
-			}
-			.footer {
-				margin-top: 2rem;
-				padding-top: 1rem;
-				border-top: 1px solid var(--border-color);
-				color: #666;
-				font-size: 0.9rem;
-			}
-			code { 
-				background: var(--bg-color);
-				padding: 0.2em 0.4em;
-				border-radius: 3px;
-				font-size: 85%;
-				font-family: SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace;
-			}
-		`
-	default:
-		return `
-			body { font-family: Arial, sans-serif; margin: 20px; }
-			.container { max-width: 1000px; margin: 0 auto; }
-		`
-	}
+	return `
+		:root {
+			--bg-color: #f6f8fa;
+			--border-color: #d0d7de;
+		}
+		body { 
+			font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif; 
+			line-height: 1.5;
+			color: #24292f;
+			margin: 0;
+			padding: 20px;
+		}
+		.container { 
+			max-width: 1200px; 
+			margin: 0 auto; 
+			background: white;
+			padding: 2rem;
+			border-radius: 6px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+		}
+		h1, h2, h3 { margin-top: 1.5em; margin-bottom: 1em; }
+		h1 { padding-bottom: .3em; border-bottom: 1px solid var(--border-color); }
+		.git-info table { border-collapse: collapse; }
+		.git-info td { padding: .5em 1em .5em 0; }
+		.stats-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+			gap: 1rem;
+			margin: 1rem 0;
+		}
+		.stat-item {
+			background: var(--bg-color);
+			border: 1px solid var(--border-color);
+			border-radius: 6px;
+			padding: 1rem;
+			text-align: center;
+		}
+		.stat-value { font-size: 2rem; font-weight: bold; }
+		.stat-label { color: #666; margin-top: 0.5rem; }
+		.issues-by-level {
+			display: flex;
+			gap: 1rem;
+			margin: 1rem 0;
+		}
+		.issue-level {
+			padding: 0.5rem 1rem;
+			border-radius: 6px;
+			display: flex;
+			gap: 0.5rem;
+			align-items: center;
+		}
+		.issue-level.严重 { background: #ffebe9; color: #cf222e; }
+		.issue-level.中等 { background: #fff8c5; color: #9a6700; }
+		.issue-level.低 { background: #ddf4ff; color: #0969da; }
+		.review-result { margin-top: 2rem; }
+		.markdown-body {
+			background: white;
+			padding: 1rem;
+			border: 1px solid var(--border-color);
+			border-radius: 6px;
+		}
+		.footer {
+			margin-top: 2rem;
+			padding-top: 1rem;
+			border-top: 1px solid var(--border-color);
+			color: #666;
+			font-size: 0.9rem;
+		}
+		code { 
+			background: var(--bg-color);
+			padding: 0.2em 0.4em;
+			border-radius: 3px;
+			font-size: 85%;
+			font-family: SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace;
+		}
+	`
 }
 
 // formatMarkdown 简单的 Markdown 转 HTML

@@ -1,4 +1,21 @@
-/review_results/
-/conf/config.json
+# 编译输出
+/bin
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试二进制文件
+*.test
+
+# 输出目录
+/review_results
+/.cache
+
+# IDE 目录
 .idea
-.idea/
+.vscode
+
+# 系统文件
+.DS_Store

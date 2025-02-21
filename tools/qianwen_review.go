@@ -37,19 +37,6 @@ type DingConfig struct {
 	Secret  string `json:"secret"`
 }
 
-// 添加评审模板配置结构
-type ReviewTemplate struct {
-	SystemPrompt string   `json:"system_prompt"`
-	FocusPoints  []string `json:"focus_points"`
-}
-
-type ReviewConfig struct {
-	Template       string                    `json:"template"`
-	Templates      map[string]ReviewTemplate `json:"templates"`
-	IgnorePatterns []string                  `json:"ignore_patterns"`
-	MaxDiffSize    int                       `json:"max_diff_size"`
-}
-
 // Config 配置文件结构体
 type Config struct {
 	APIKey    string       `json:"api_key"`
@@ -58,7 +45,6 @@ type Config struct {
 	Ding      DingConfig   `json:"ding"`
 	Output    OutputConfig `json:"output"`
 	Cache     CacheConfig  `json:"cache"`
-	Review    ReviewConfig `json:"review"`
 }
 
 // 全局配置
@@ -97,179 +83,6 @@ type ReviewHistory struct {
 	ReviewStats  *ReviewStats `json:"stats"`
 	ReviewResult string       `json:"result"`
 	DateTime     time.Time    `json:"datetime"`
-}
-
-// 添加 Markdown 格式化结构
-type MarkdownReport struct {
-	Title       string
-	Summary     string
-	GitInfo     *GitInfo
-	Stats       *ReviewStats
-	ReviewItems []string
-	DateTime    time.Time
-}
-
-// 添加导出格式枚举
-const (
-	FormatMarkdown = "markdown"
-	FormatHTML     = "html"
-	FormatPDF      = "pdf"
-)
-
-// 添加导出接口
-type Exporter interface {
-	Export(history *ReviewHistory) (string, error)
-}
-
-// Markdown 导出器
-type MarkdownExporter struct{}
-
-func (e *MarkdownExporter) Export(history *ReviewHistory) (string, error) {
-	return formatMarkdownReport(history), nil
-}
-
-// HTML 导出器
-type HTMLExporter struct {
-	CSSTemplate string
-}
-
-func (e *HTMLExporter) Export(history *ReviewHistory) (string, error) {
-	var html strings.Builder
-
-	// 添加 HTML 头部
-	html.WriteString(`<!DOCTYPE html>
-<html>
-<head>
-	<meta charset="UTF-8">
-	<title>代码评审报告</title>
-	<style>
-		/* 可以根据 CSSTemplate 加载不同的样式 */
-		body {
-			font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;
-			line-height: 1.6;
-			max-width: 1200px;
-			margin: 0 auto;
-			padding: 2rem;
-		}
-		.review-header { margin-bottom: 2rem; }
-		.git-info { background: #f6f8fa; padding: 1rem; border-radius: 6px; }
-		.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
-		.issue { border-left: 4px solid #e36209; padding-left: 1rem; margin: 1rem 0; }
-	</style>
-</head>
-<body>`)
-
-	// 添加标题
-	html.WriteString("<h1>代码评审报告</h1>")
-
-	// Git 信息
-	if history.GitInfo != nil {
-		html.WriteString(`<div class="git-info">
-			<h2>Git 信息</h2>
-			<p>分支: <code>` + history.GitInfo.Branch + `</code></p>
-			<p>提交: <code>` + history.GitInfo.CommitHash + `</code></p>
-			<p>作者: ` + history.GitInfo.Author + `</p>
-			<p>提交信息: ` + history.GitInfo.CommitMessage + `</p>
-		</div>`)
-	}
-
-	// ... 其他内容转换为 HTML ...
-
-	html.WriteString("</body></html>")
-	return html.String(), nil
-}
-
-// PDF 导出器
-type PDFExporter struct {
-	PageSize         string
-	WithLineNumbers  bool
-	HighlightChanges bool
-}
-
-func (e *PDFExporter) Export(history *ReviewHistory) (string, error) {
-	// 首先生成 HTML
-	htmlExporter := &HTMLExporter{CSSTemplate: "github"}
-	htmlContent, err := htmlExporter.Export(history)
-	if err != nil {
-		return "", err
-	}
-
-	// 使用 wkhtmltopdf 转换为 PDF
-	// 这里需要系统安装 wkhtmltopdf
-	tmpFile := filepath.Join(os.TempDir(), "review_"+history.ID+".html")
-	if err := os.WriteFile(tmpFile, []byte(htmlContent), 0644); err != nil {
-		return "", err
-	}
-	defer os.Remove(tmpFile)
-
-	pdfFile := filepath.Join(os.TempDir(), "review_"+history.ID+".pdf")
-	cmd := exec.Command("wkhtmltopdf",
-		"--page-size", e.PageSize,
-		"--enable-local-file-access",
-		tmpFile, pdfFile)
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to generate PDF: %w", err)
-	}
-
-	return pdfFile, nil
-}
-
-// 导出器工厂
-func createExporter(format string) (Exporter, error) {
-	switch format {
-	case FormatMarkdown:
-		return &MarkdownExporter{}, nil
-	case FormatHTML:
-		return &HTMLExporter{
-			CSSTemplate: config.Output.Reports.CSSTemplate,
-		}, nil
-	case FormatPDF:
-		return &PDFExporter{
-			PageSize:         config.Output.Reports.PDFOptions.PageSize,
-			WithLineNumbers:  config.Output.Reports.PDFOptions.WithLineNumbers,
-			HighlightChanges: config.Output.Reports.PDFOptions.HighlightChanges,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported format: %s", format)
-	}
-}
-
-// 修改保存报告的函数
-func saveReport(history *ReviewHistory) error {
-	for _, format := range config.Output.Format {
-		exporter, err := createExporter(format)
-		if err != nil {
-			log.Printf("Failed to create exporter for format %s: %v", format, err)
-			continue
-		}
-
-		content, err := exporter.Export(history)
-		if err != nil {
-			log.Printf("Failed to export report in format %s: %v", format, err)
-			continue
-		}
-
-		// 创建输出目录
-		reportDir := filepath.Join(config.Output.Dir, format)
-		if err := os.MkdirAll(reportDir, 0755); err != nil {
-			return err
-		}
-
-		// 保存文件
-		filename := filepath.Join(reportDir,
-			fmt.Sprintf("%s_%s.%s",
-				history.DateTime.Format("20060102_150405"),
-				history.ID,
-				format))
-
-		if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
-			log.Printf("Failed to save report in format %s: %v", format, err)
-		} else {
-			log.Printf("Saved report in format %s: %s", format, filename)
-		}
-	}
-	return nil
 }
 
 // 计算内容的哈希值作为缓存键
@@ -432,37 +245,46 @@ func sendDingMessage(message string) error {
 	return nil
 }
 
-// 添加文件过滤功能
-func shouldIgnoreFile(filename string) bool {
-	for _, pattern := range config.Review.IgnorePatterns {
-		matched, err := filepath.Match(pattern, filename)
-		if err == nil && matched {
-			return true
-		}
-	}
-	return false
-}
-
 // 修改代码评审函数
 func performCodeReview(diffContent string) (string, error) {
-	// 检查 diff 大小
-	if len(diffContent) > config.Review.MaxDiffSize {
-		return "", fmt.Errorf("diff 内容超过最大限制 (%d > %d bytes)",
-			len(diffContent), config.Review.MaxDiffSize)
-	}
-
-	// 获取模板
-	template, ok := config.Review.Templates[config.Review.Template]
-	if !ok {
-		template = config.Review.Templates["default"]
+	// 检查缓存
+	if result, err := checkCache(diffContent); err == nil && result != "" {
+		log.Println("Using cached review result")
+		return result, nil
 	}
 
 	payload := RequestBody{
 		Model: config.ModelName,
 		Messages: []Message{
 			{
-				Role:    "system",
-				Content: template.SystemPrompt,
+				Role: "system",
+				Content: `你是一个经验丰富的高级编程架构师，请根据提供的 git diff 内容进行代码评审。
+请按照以下模板格式输出评审结果：
+
+## 代码变更概述
+[简要描述本次代码变更的主要内容]
+
+## 主要问题
+1. [问题1]
+   - 影响: [描述影响]
+   - 建议: [修改建议]
+2. [问题2]
+   ...
+
+## 代码质量评估
+- 可读性: [高/中/低] 
+- 可维护性: [高/中/低]
+- 安全性: [高/中/低]
+
+## 优化建议
+1. [具体的优化建议1]
+2. [具体的优化建议2]
+...
+
+## 其他注意事项
+[其他需要注意的点]
+
+请确保评审意见具体、清晰、可操作。`,
 			},
 			{
 				Role:    "user",
@@ -473,12 +295,6 @@ func performCodeReview(diffContent string) (string, error) {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal payload: %w", err)
-	}
-
-	// 检查缓存
-	if result, err := checkCache(diffContent); err == nil && result != "" {
-		log.Println("Using cached review result")
-		return result, nil
 	}
 
 	// 发送审查请求
@@ -521,63 +337,24 @@ func performCodeReview(diffContent string) (string, error) {
 	return "No review results returned.", nil
 }
 
-// 扩展统计分析功能
+// 添加统计分析函数
 func analyzeReviewStats(diffContent string, reviewResult string) (*ReviewStats, error) {
 	stats := &ReviewStats{
 		IssuesByLevel:  make(map[string]int),
-		CommonIssues:   make([]string, 0),
 		ReviewDateTime: time.Now(),
 	}
 
 	// 分析 diff 内容
-	var currentFile string
-	changedFiles := make(map[string]bool)
-
 	lines := strings.Split(diffContent, "\n")
 	for _, line := range lines {
-		if strings.HasPrefix(line, "diff --git") {
-			parts := strings.Split(line, " ")
-			if len(parts) > 2 {
-				currentFile = strings.TrimPrefix(parts[2], "b/")
-				if !shouldIgnoreFile(currentFile) {
-					changedFiles[currentFile] = true
-				}
-			}
-		} else if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+		if strings.HasPrefix(line, "+") {
 			stats.LinesAdded++
-		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+		} else if strings.HasPrefix(line, "-") {
 			stats.LinesDeleted++
 		}
 	}
-	stats.FilesChanged = len(changedFiles)
 
-	// 分析评审结果
-	sections := strings.Split(reviewResult, "##")
-	for _, section := range sections {
-		section = strings.TrimSpace(section)
-		if strings.HasPrefix(section, "主要问题") {
-			// 统计问题级别
-			if strings.Contains(section, "严重") {
-				stats.IssuesByLevel["严重"]++
-			} else if strings.Contains(section, "中等") {
-				stats.IssuesByLevel["中等"]++
-			} else if strings.Contains(section, "低") {
-				stats.IssuesByLevel["低"]++
-			}
-
-			// 提取常见问题
-			lines := strings.Split(section, "\n")
-			for _, line := range lines {
-				if strings.HasPrefix(line, "1.") || strings.HasPrefix(line, "2.") {
-					issue := strings.TrimSpace(strings.TrimPrefix(line, "1."))
-					issue = strings.TrimSpace(strings.TrimPrefix(issue, "2."))
-					if issue != "" {
-						stats.CommonIssues = append(stats.CommonIssues, issue)
-					}
-				}
-			}
-		}
-	}
+	// ... 其他统计逻辑 ...
 
 	return stats, nil
 }
@@ -626,61 +403,34 @@ func saveReviewHistory(history *ReviewHistory) error {
 	return os.WriteFile(filename, data, 0644)
 }
 
-// 格式化评审结果为 Markdown
-func formatMarkdownReport(history *ReviewHistory) string {
-	var report strings.Builder
-
-	// 添加标题
-	report.WriteString(fmt.Sprintf("# 代码评审报告\n\n"))
-
-	// Git 信息
-	if history.GitInfo != nil {
-		report.WriteString("## Git 信息\n\n")
-		report.WriteString(fmt.Sprintf("- 分支: `%s`\n", history.GitInfo.Branch))
-		report.WriteString(fmt.Sprintf("- 提交: `%s`\n", history.GitInfo.CommitHash))
-		report.WriteString(fmt.Sprintf("- 作者: %s\n", history.GitInfo.Author))
-		report.WriteString(fmt.Sprintf("- 提交信息: %s\n", history.GitInfo.CommitMessage))
-	}
-
-	// 统计信息
-	report.WriteString("\n## 统计信息\n\n")
-	report.WriteString(fmt.Sprintf("- 文件变化: %d\n", history.ReviewStats.FilesChanged))
-	report.WriteString(fmt.Sprintf("- 新增行数: %d\n", history.ReviewStats.LinesAdded))
-	report.WriteString(fmt.Sprintf("- 删除行数: %d\n", history.ReviewStats.LinesDeleted))
-
-	// 问题级别统计
-	report.WriteString("\n## 问题级别统计\n\n")
-	for level, count := range history.ReviewStats.IssuesByLevel {
-		report.WriteString(fmt.Sprintf("- %s: %d\n", level, count))
-	}
-
-	// 常见问题
-	report.WriteString("\n## 常见问题\n\n")
-	for _, issue := range history.ReviewStats.CommonIssues {
-		report.WriteString(fmt.Sprintf("- %s\n", issue))
-	}
-
-	return report.String()
-}
-
 func main() {
-	// ... 其他代码保持不变 ...
-
-	// 保存报告（替换原来的 saveMarkdownReport 调用）
-	if err := saveReport(history); err != nil {
-		log.Printf("Failed to save reports: %v", err)
+	// 加载配置文件
+	err := loadConfig("conf/config.json")
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
 	}
 
-	// 根据第一个配置的格式显示结果
-	if len(config.Output.Format) > 0 {
-		exporter, err := createExporter(config.Output.Format[0])
-		if err == nil {
-			content, err := exporter.Export(history)
-			if err == nil {
-				fmt.Println(content)
-			}
-		}
+	// 读取标准输入中的代码差异内容
+	var diffContent strings.Builder
+	_, err = io.Copy(&diffContent, os.Stdin)
+	if err != nil {
+		log.Fatalf("Failed to read diff content: %v", err)
+	}
+	// 执行代码评审
+	reviewResult, err := performCodeReview(diffContent.String())
+	if err != nil {
+		log.Printf("Code review failed: %v", err)
+		fmt.Print("No valid review result.\n") // 明确的错误输出
+		return
 	}
 
-	// ... 其他代码保持不变 ...
+	// 输出评审结果
+	fmt.Println(reviewResult)
+
+	// 发送钉钉消息（如果启用）
+	if err := sendDingMessage(reviewResult); err != nil {
+		log.Printf("Failed to send DingTalk message: %v", err)
+	}
+
+	log.Println("All tasks completed.")
 }
