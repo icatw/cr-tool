@@ -4,7 +4,6 @@ import (
 	"github.com/icatw/cr-tool/pkg/review"
 	"github.com/stretchr/testify/assert"
 	"os"
-	"path/filepath"
 	"testing"
 )
 

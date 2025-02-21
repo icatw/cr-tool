@@ -1,7 +1,6 @@
 package review
 
 import (
-	"github.com/icatw/cr-tool/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )

@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-
 	"github.com/icatw/cr-tool/pkg/config"
-	
+	"github.com/spf13/cobra"
 )
 
 var initCmd = &cobra.Command{
