@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,15 +30,21 @@ type CacheConfig struct {
 	ExpireDays int    `json:"expire_days"`
 }
 
+// 修改配置结构
+type DingConfig struct {
+	Enabled bool   `json:"enabled"`
+	Webhook string `json:"webhook"`
+	Secret  string `json:"secret"`
+}
+
 // Config 配置文件结构体
 type Config struct {
-	APIKey      string       `json:"api_key"`
-	ModelName   string       `json:"model_name"`
-	BaseURL     string       `json:"base_url"`
-	DingWebhook string       `json:"ding_webhook"`
-	DingSecret  string       `json:"ding_secret"`
-	Output      OutputConfig `json:"output"`
-	Cache       CacheConfig  `json:"cache"`
+	APIKey    string       `json:"api_key"`
+	ModelName string       `json:"model_name"`
+	BaseURL   string       `json:"base_url"`
+	Ding      DingConfig   `json:"ding"`
+	Output    OutputConfig `json:"output"`
+	Cache     CacheConfig  `json:"cache"`
 }
 
 // 全局配置
@@ -48,6 +55,34 @@ type ReviewCache struct {
 	Content  string    `json:"content"`
 	Result   string    `json:"result"`
 	DateTime time.Time `json:"datetime"`
+}
+
+// 添加评审统计结构
+type ReviewStats struct {
+	FilesChanged   int            `json:"files_changed"`
+	LinesAdded     int            `json:"lines_added"`
+	LinesDeleted   int            `json:"lines_deleted"`
+	IssuesByLevel  map[string]int `json:"issues_by_level"`
+	CommonIssues   []string       `json:"common_issues"`
+	ReviewDateTime time.Time      `json:"review_datetime"`
+}
+
+// 添加 Git 相关功能
+type GitInfo struct {
+	Branch        string
+	CommitHash    string
+	CommitMessage string
+	Author        string
+	ChangedFiles  []string
+}
+
+// 添加历史记录结构
+type ReviewHistory struct {
+	ID           string       `json:"id"`
+	GitInfo      *GitInfo     `json:"git_info"`
+	ReviewStats  *ReviewStats `json:"stats"`
+	ReviewResult string       `json:"result"`
+	DateTime     time.Time    `json:"datetime"`
 }
 
 // 计算内容的哈希值作为缓存键
@@ -160,16 +195,28 @@ func generateSign(secret string, timestamp int64) (string, error) {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
-// 发送钉钉消息
+// 修改发送钉钉消息的函数
 func sendDingMessage(message string) error {
+	// 如果钉钉通知未启用，直接返回
+	if !config.Ding.Enabled {
+		log.Println("DingTalk notification is disabled")
+		return nil
+	}
+
+	// 验证必要的配置
+	if config.Ding.Webhook == "" || config.Ding.Secret == "" {
+		return fmt.Errorf("DingTalk webhook or secret is not configured")
+	}
+
 	timestamp := time.Now().UnixMilli()
-	sign, err := generateSign(config.DingSecret, timestamp)
+	sign, err := generateSign(config.Ding.Secret, timestamp)
 	if err != nil {
 		return fmt.Errorf("failed to generate DingTalk sign: %w", err)
 	}
 
 	// 构造完整的 Webhook URL
-	webhookURL := fmt.Sprintf("%s&timestamp=%d&sign=%s", config.DingWebhook, timestamp, url.QueryEscape(sign))
+	webhookURL := fmt.Sprintf("%s&timestamp=%d&sign=%s",
+		config.Ding.Webhook, timestamp, url.QueryEscape(sign))
 
 	// 构造消息内容
 	body := map[string]interface{}{
@@ -290,6 +337,72 @@ func performCodeReview(diffContent string) (string, error) {
 	return "No review results returned.", nil
 }
 
+// 添加统计分析函数
+func analyzeReviewStats(diffContent string, reviewResult string) (*ReviewStats, error) {
+	stats := &ReviewStats{
+		IssuesByLevel:  make(map[string]int),
+		ReviewDateTime: time.Now(),
+	}
+
+	// 分析 diff 内容
+	lines := strings.Split(diffContent, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "+") {
+			stats.LinesAdded++
+		} else if strings.HasPrefix(line, "-") {
+			stats.LinesDeleted++
+		}
+	}
+
+	// ... 其他统计逻辑 ...
+
+	return stats, nil
+}
+
+// 获取 Git 信息
+func getGitInfo() (*GitInfo, error) {
+	gitInfo := &GitInfo{}
+
+	// 获取当前分支
+	output, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return nil, err
+	}
+	gitInfo.Branch = strings.TrimSpace(string(output))
+
+	// 获取最近的提交信息
+	output, err = exec.Command("git", "log", "-1", "--pretty=format:%H|%s|%an").Output()
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(string(output), "|")
+	if len(parts) == 3 {
+		gitInfo.CommitHash = parts[0]
+		gitInfo.CommitMessage = parts[1]
+		gitInfo.Author = parts[2]
+	}
+
+	return gitInfo, nil
+}
+
+// 添加历史记录存储
+func saveReviewHistory(history *ReviewHistory) error {
+	historyDir := filepath.Join(config.Output.Dir, "history")
+	if err := os.MkdirAll(historyDir, 0755); err != nil {
+		return err
+	}
+
+	filename := filepath.Join(historyDir,
+		fmt.Sprintf("%s_%s.json", history.DateTime.Format("20060102_150405"), history.ID))
+
+	data, err := json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filename, data, 0644)
+}
+
 func main() {
 	// 加载配置文件
 	err := loadConfig("conf/config.json")
@@ -311,10 +424,10 @@ func main() {
 		return
 	}
 
-	// 输出评审结果（仅输出结果内容）
+	// 输出评审结果
 	fmt.Println(reviewResult)
 
-	// 发送钉钉消息
+	// 发送钉钉消息（如果启用）
 	if err := sendDingMessage(reviewResult); err != nil {
 		log.Printf("Failed to send DingTalk message: %v", err)
 	}
