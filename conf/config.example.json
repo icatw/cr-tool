@@ -3,5 +3,14 @@
   "model_name": "qwen-plus",
   "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
   "ding_webhook": "https://oapi.dingtalk.com/robot/send?access_token=your_access_token_here",
-  "ding_secret": "your_ding_secret_here"
+  "ding_secret": "your_ding_secret_here",
+  "output": {
+    "dir": "./review_results",
+    "format": "markdown"
+  },
+  "cache": {
+    "enabled": true,
+    "dir": "./.cache/code_review",
+    "expire_days": 7
+  }
 }

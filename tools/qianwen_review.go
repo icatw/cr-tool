@@ -12,21 +12,108 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
+// 扩展配置结构
+type OutputConfig struct {
+	Dir    string `json:"dir"`
+	Format string `json:"format"`
+}
+
+type CacheConfig struct {
+	Enabled    bool   `json:"enabled"`
+	Dir        string `json:"dir"`
+	ExpireDays int    `json:"expire_days"`
+}
+
 // Config 配置文件结构体
 type Config struct {
-	APIKey      string `json:"api_key"`
-	ModelName   string `json:"model_name"`
-	BaseURL     string `json:"base_url"`
-	DingWebhook string `json:"ding_webhook"`
-	DingSecret  string `json:"ding_secret"`
+	APIKey      string       `json:"api_key"`
+	ModelName   string       `json:"model_name"`
+	BaseURL     string       `json:"base_url"`
+	DingWebhook string       `json:"ding_webhook"`
+	DingSecret  string       `json:"ding_secret"`
+	Output      OutputConfig `json:"output"`
+	Cache       CacheConfig  `json:"cache"`
 }
 
 // 全局配置
 var config Config
+
+// 添加缓存结构
+type ReviewCache struct {
+	Content  string    `json:"content"`
+	Result   string    `json:"result"`
+	DateTime time.Time `json:"datetime"`
+}
+
+// 计算内容的哈希值作为缓存键
+func calculateHash(content string) string {
+	h := sha256.New()
+	h.Write([]byte(content))
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+// 检查缓存
+func checkCache(content string) (string, error) {
+	if !config.Cache.Enabled {
+		return "", nil
+	}
+
+	hash := calculateHash(content)
+	cacheFile := filepath.Join(config.Cache.Dir, hash+".json")
+
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return "", nil
+	}
+
+	var cache ReviewCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return "", nil
+	}
+
+	// 检查是否过期
+	if time.Since(cache.DateTime).Hours() > float64(config.Cache.ExpireDays*24) {
+		os.Remove(cacheFile)
+		return "", nil
+	}
+
+	// 验证内容是否匹配
+	if cache.Content != content {
+		return "", nil
+	}
+
+	return cache.Result, nil
+}
+
+// 保存缓存
+func saveCache(content, result string) error {
+	if !config.Cache.Enabled {
+		return nil
+	}
+
+	if err := os.MkdirAll(config.Cache.Dir, 0755); err != nil {
+		return err
+	}
+
+	cache := ReviewCache{
+		Content:  content,
+		Result:   result,
+		DateTime: time.Now(),
+	}
+
+	data, err := json.Marshal(cache)
+	if err != nil {
+		return err
+	}
+
+	hash := calculateHash(content)
+	return os.WriteFile(filepath.Join(config.Cache.Dir, hash+".json"), data, 0644)
+}
 
 type Message struct {
 	Role    string `json:"role"`
@@ -111,8 +198,14 @@ func sendDingMessage(message string) error {
 	return nil
 }
 
-// 代码评审逻辑
+// 修改代码评审函数
 func performCodeReview(diffContent string) (string, error) {
+	// 检查缓存
+	if result, err := checkCache(diffContent); err == nil && result != "" {
+		log.Println("Using cached review result")
+		return result, nil
+	}
+
 	payload := RequestBody{
 		Model: config.ModelName,
 		Messages: []Message{
@@ -186,8 +279,13 @@ func performCodeReview(diffContent string) (string, error) {
 		return "", fmt.Errorf("failed to parse response JSON: %w", err)
 	}
 
+	// 获取结果后保存缓存
 	if len(result.Choices) > 0 {
-		return result.Choices[0].Message.Content, nil
+		reviewResult := result.Choices[0].Message.Content
+		if err := saveCache(diffContent, reviewResult); err != nil {
+			log.Printf("Failed to save cache: %v", err)
+		}
+		return reviewResult, nil
 	}
 	return "No review results returned.", nil
 }
