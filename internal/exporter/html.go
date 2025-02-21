@@ -2,12 +2,10 @@ package exporter
 
 import (
 	"fmt"
-	"html"
-	"strings"
-	"time"
-
 	"github.com/cr/internal/config"
 	"github.com/cr/internal/model"
+	"html/template"
+	"strings"
 )
 
 type HTMLExporter struct {
@@ -43,16 +41,16 @@ func (e *HTMLExporter) Export(history *model.ReviewHistory) (string, error) {
 			<h2>Git 信息</h2>
 			<table>
 				<tr><td>分支：</td><td><code>`)
-		b.WriteString(html.EscapeString(history.GitInfo.Branch))
+		b.WriteString(template.HTMLEscapeString(history.GitInfo.Branch))
 		b.WriteString(`</code></td></tr>
 				<tr><td>提交：</td><td><code>`)
-		b.WriteString(html.EscapeString(history.GitInfo.CommitHash))
+		b.WriteString(template.HTMLEscapeString(history.GitInfo.CommitHash))
 		b.WriteString(`</code></td></tr>
 				<tr><td>作者：</td><td>`)
-		b.WriteString(html.EscapeString(history.GitInfo.Author))
+		b.WriteString(template.HTMLEscapeString(history.GitInfo.Author))
 		b.WriteString(`</td></tr>
 				<tr><td>提交信息：</td><td>`)
-		b.WriteString(html.EscapeString(history.GitInfo.CommitMessage))
+		b.WriteString(template.HTMLEscapeString(history.GitInfo.CommitMessage))
 		b.WriteString(`</td></tr>
 			</table>
 		</div>`)
@@ -203,45 +201,45 @@ func (e *HTMLExporter) getCSS() string {
 // formatMarkdown 简单的 Markdown 转 HTML
 func formatMarkdown(md string) string {
 	lines := strings.Split(md, "\n")
-	var html strings.Builder
+	var b strings.Builder
 	inList := false
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			if inList {
-				html.WriteString("</ul>\n")
+				b.WriteString("</ul>\n")
 				inList = false
 			}
-			html.WriteString("<p></p>\n")
+			b.WriteString("<p></p>\n")
 			continue
 		}
 
 		switch {
 		case strings.HasPrefix(line, "# "):
-			html.WriteString("<h1>" + html.EscapeString(line[2:]) + "</h1>\n")
+			b.WriteString("<h1>" + template.HTMLEscapeString(line[2:]) + "</h1>\n")
 		case strings.HasPrefix(line, "## "):
-			html.WriteString("<h2>" + html.EscapeString(line[3:]) + "</h2>\n")
+			b.WriteString("<h2>" + template.HTMLEscapeString(line[3:]) + "</h2>\n")
 		case strings.HasPrefix(line, "### "):
-			html.WriteString("<h3>" + html.EscapeString(line[4:]) + "</h3>\n")
+			b.WriteString("<h3>" + template.HTMLEscapeString(line[4:]) + "</h3>\n")
 		case strings.HasPrefix(line, "- "):
 			if !inList {
-				html.WriteString("<ul>\n")
+				b.WriteString("<ul>\n")
 				inList = true
 			}
-			html.WriteString("<li>" + html.EscapeString(line[2:]) + "</li>\n")
+			b.WriteString("<li>" + template.HTMLEscapeString(line[2:]) + "</li>\n")
 		default:
 			if inList {
-				html.WriteString("</ul>\n")
+				b.WriteString("</ul>\n")
 				inList = false
 			}
-			html.WriteString("<p>" + html.EscapeString(line) + "</p>\n")
+			b.WriteString("<p>" + template.HTMLEscapeString(line) + "</p>\n")
 		}
 	}
 
 	if inList {
-		html.WriteString("</ul>\n")
+		b.WriteString("</ul>\n")
 	}
 
-	return html.String()
+	return b.String()
 }

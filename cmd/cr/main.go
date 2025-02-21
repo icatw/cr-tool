@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -43,7 +42,7 @@ func main() {
 			continue
 		}
 
-		if err, _ := exp.Export(history); err != nil {
+		if _, err := exp.Export(history); err != nil {
 			log.Printf("导出失败 (%s): %v", format, err)
 		}
 	}
