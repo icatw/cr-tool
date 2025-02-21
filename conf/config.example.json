@@ -2,6 +2,37 @@
   "api_key": "your_api_key_here",
   "model_name": "qwen-plus",
   "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-  "ding_webhook": "https://oapi.dingtalk.com/robot/send?access_token=your_access_token_here",
-  "ding_secret": "your_ding_secret_here"
+  "ding": {
+    "enabled": true,
+    "webhook": "https://oapi.dingtalk.com/robot/send?access_token=your_access_token_here",
+    "secret": "your_ding_secret_here"
+  },
+  "output": {
+    "dir": "./review_results",
+    "format": "markdown"
+  },
+  "cache": {
+    "enabled": true,
+    "dir": "./.cache/code_review",
+    "expire_days": 7
+  },
+  "review": {
+    "template": "default",
+    "templates": {
+      "default": {
+        "system_prompt": "你是一个经验丰富的高级编程架构师...",
+        "focus_points": ["安全性", "性能", "可维护性"]
+      },
+      "security": {
+        "system_prompt": "你是一个安全专家...",
+        "focus_points": ["安全漏洞", "数据保护", "访问控制"]
+      }
+    },
+    "ignore_patterns": [
+      "*.test.go",
+      "vendor/*",
+      "*.md"
+    ],
+    "max_diff_size": 2000
+  }
 }

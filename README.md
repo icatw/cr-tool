@@ -1,146 +1,172 @@
-# Git代码评审与通知工具
+# CR Tool - AI 代码评审工具
 
-本项目提供了一种自动化代码评审工具，用于对Git `diff` 的代码改动进行审查，并将结果发送到钉钉Webhook进行通知。它包括一个Bash脚本用于集成到Git工作流程，以及一个Go程序用于通过API执行代码评审并发送通知。
+一个基于 AI 的代码评审工具，支持多种输出格式，可以自动分析代码变更并生成详细的评审报告。
 
-## 功能特性
+## 特性
 
-- 自动获取未提交的`git diff`代码改动。
-- 使用配置的AI API（通义千问）执行代码评审。
-- 将代码评审结果通过钉钉Webhook发送通知。
-- 将评审结果本地保存以供进一步检查。
+- 🤖 基于 AI 的智能代码评审
+- 📊 多种输出格式支持 (Markdown/HTML/PDF)
+- 💾 本地缓存支持，避免重复评审
+- 🔄 与 Git 深度集成
+- 📈 详细的统计分析
+- ⚙️ 灵活的配置选项
 
----
+## 安装
+
+```bash
+go install github.com/icatw/cr-tool/cmd/cr@latest
+```
 
 ## 快速开始
 
-### 前置要求
-
-- 已安装Git。
-- 已安装Go语言开发环境。
-- 钉钉Webhook URL及其密钥。
-- 通义千问或类似服务的API密钥。
-
----
-
-### 目录结构
-
-```plaintext
-.
-├── conf/
-│   ├── config.json           # 包含API密钥和Webhook设置的配置文件。
-├── review_results/           # 用于保存评审结果的目录。
-├── tools/
-│   ├── qianwen_review.go     # 用于执行代码评审的Go程序。
-├── review.sh                 # 触发评审流程的Bash脚本。
-└── README.md                 # 项目文档。
+1. 初始化配置：
+```bash
+cr init
+# 根据提示输入 API Key
 ```
 
----
+2. 评审当前改动：
+```bash
+git diff | cr
+```
 
-### 安装
+3. 使用特定格式导出：
+```bash
+git diff | cr -f html
+```
 
-1. 克隆此仓库：
+## 配置说明
 
-   ```bash
-   git clone <repository_url>
-   cd <repository_name>
-   ```
-
-2. 进入`conf`目录并根据示例创建`config.json`文件：
-
-   ```bash
-   cp conf/config.example.json conf/config.json
-   ```
-
-3. 使用您的API密钥、钉钉Webhook URL和密钥更新`conf/config.json`。
-
----
-
-### 配置说明
-
-`config.json`文件的结构如下：
+默认配置文件位置：`~/.cr-tool/config.json`
 
 ```json
 {
-    "api_key": "your_api_key_here",
-    "model_name": "qwen-plus",
-    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-    "ding_webhook": "https://oapi.dingtalk.com/robot/send?access_token=your_access_token_here",
-    "ding_secret": "your_ding_secret_here"
+  "api_key": "your_api_key",
+  "model_name": "qwen-plus",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+  "output": {
+    "dir": "./review_results",
+    "format": ["markdown"]
+  },
+  "cache": {
+    "enabled": true,
+    "dir": "./.cache/code_review",
+    "expire_days": 7
+  },
+  "review": {
+    "template": "default",
+    "templates": {
+      "default": {
+        "system_prompt": "你是一个专业的代码评审员...",
+        "focus_points": [
+          "代码质量",
+          "性能优化",
+          "安全问题"
+        ]
+      }
+    },
+    "ignore_patterns": [
+      "*.min.js",
+      "vendor/*"
+    ],
+    "max_diff_size": 2000
+  }
 }
 ```
 
-- **`api_key`**：用于AI评审服务的API密钥。
-- **`model_name`**：使用的模型名称，例如`qwen-plus`。
-- **`base_url`**：AI评审服务的API地址。
-- **`ding_webhook`**：钉钉Webhook URL，用于发送通知。
-- **`ding_secret`**：钉钉Webhook的密钥，用于认证。
+## 命令行选项
 
----
+```bash
+Usage:
+  cr [flags]
+  cr [command]
 
-### 使用方法
+Commands:
+  init        初始化配置文件
+  help        查看帮助信息
 
-1. 确保Go程序已编译并可用：
+Flags:
+  -c, --config string   配置文件路径 (默认 "config.json")
+  -o, --output string   输出目录
+  -f, --format string   输出格式(markdown/html/pdf)
+  -h, --help           查看帮助信息
+```
 
-   ```bash
-   cd tools
-   go build -o qianwen_review qianwen_review.go
-   ```
+## 作为库使用
 
-2. 赋予Shell脚本可执行权限：
+基础用法：
+```go
+import "github.com/icatw/cr-tool/pkg/review"
 
-   ```bash
-   chmod +x review.sh
-   ```
+func main() {
+    reviewer := review.New()
+    history, err := reviewer.Review(diffContent)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(history.ReviewResult)
+}
+```
 
-3. 运行脚本触发评审流程：
+自定义配置：
+```go
+import (
+    "github.com/icatw/cr-tool/pkg/config"
+    "github.com/icatw/cr-tool/pkg/exporter"
+    "github.com/icatw/cr-tool/pkg/review"
+)
 
-   ```bash
-   ./review.sh
-   ```
+func main() {
+    cfg := &config.Config{
+        APIKey:    "your_api_key",
+        ModelName: "qwen-plus",
+        Output: config.OutputConfig{
+            Dir:    "./reports",
+            Format: []string{"markdown", "html"},
+        },
+    }
 
-4. 结果将保存到`review_results`目录，如果配置正确，也会发送到钉钉。
+    reviewer := review.New()
+    history, err := reviewer.Review(diffContent)
+    if err != nil {
+        log.Fatal(err)
+    }
 
----
+    // 导出结果
+    for _, format := range cfg.Output.Format {
+        exp, err := exporter.New(format)
+        if err != nil {
+            continue
+        }
+        outputPath, err := exp.Export(history)
+        if err != nil {
+            continue
+        }
+        fmt.Printf("报告已保存到: %s\n", outputPath)
+    }
+}
+```
 
-### 示例工作流程
+## 项目结构
 
-1. 修改Git仓库中的一些文件。
-2. 使用`git add`暂存改动。
-3. 运行`./review.sh`对暂存改动进行评审。
-4. 在`review_results/`中检查评审结果，或通过钉钉查看。
+```
+cr-tool/
+├── cmd/
+│   └── cr/              # 命令行工具
+├── pkg/
+│   ├── config/          # 配置管理
+│   ├── review/          # 评审核心功能
+│   ├── exporter/        # 导出功能
+│   └── git/             # Git 相关功能
+├── examples/            # 使用示例
+├── go.mod
+└── README.md
+```
 
----
+## 贡献
 
-## 项目组件
-
-### 1. Shell脚本（`review.sh`）
-
-- 使用`git diff`提取未提交的改动。
-- 调用Go程序执行代码评审。
-- 将结果保存到`review_results`。
-
-### 2. Go程序（`qianwen_review.go`）
-
-- 将代码差异发送到AI API进行评审。
-- 处理并格式化API响应。
-- 将格式化后的结果发送到钉钉。
-
----
-
-## 贡献指南
-
-欢迎贡献！请fork此仓库并提交您的更改。
-
----
+欢迎提交 Issue 和 Pull Request！
 
 ## 许可证
 
-本项目使用MIT许可证，详情请参阅LICENSE文件。
-
----
-
-## 致谢
-
-- [钉钉开发者文档](https://open.dingtalk.com/document/orgapp/custom-robot-access)
-- [通义千问API文档](https://www.aliyun.com/product/ai)
+MIT License
