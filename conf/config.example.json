@@ -9,11 +9,17 @@
   },
   "output": {
     "dir": "./review_results",
-    "format": "markdown",
+    "format": ["markdown", "html", "pdf"],
     "reports": {
       "include_git_info": true,
       "include_stats": true,
-      "template": "default"
+      "template": "default",
+      "css_template": "github",
+      "pdf_options": {
+        "page_size": "A4",
+        "with_line_numbers": true,
+        "highlight_changes": true
+      }
     }
   },
   "cache": {
