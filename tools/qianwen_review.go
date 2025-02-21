@@ -99,6 +99,16 @@ type ReviewHistory struct {
 	DateTime     time.Time    `json:"datetime"`
 }
 
+// 添加 Markdown 格式化结构
+type MarkdownReport struct {
+	Title       string
+	Summary     string
+	GitInfo     *GitInfo
+	Stats       *ReviewStats
+	ReviewItems []string
+	DateTime    time.Time
+}
+
 // 计算内容的哈希值作为缓存键
 func calculateHash(content string) string {
 	h := sha256.New()
@@ -453,6 +463,65 @@ func saveReviewHistory(history *ReviewHistory) error {
 	return os.WriteFile(filename, data, 0644)
 }
 
+// 格式化评审结果为 Markdown
+func formatMarkdownReport(history *ReviewHistory) string {
+	var report strings.Builder
+
+	// 添加标题
+	report.WriteString(fmt.Sprintf("# 代码评审报告\n\n"))
+
+	// Git 信息
+	if history.GitInfo != nil {
+		report.WriteString("## Git 信息\n\n")
+		report.WriteString(fmt.Sprintf("- 分支: `%s`\n", history.GitInfo.Branch))
+		report.WriteString(fmt.Sprintf("- 提交: `%s`\n", history.GitInfo.CommitHash))
+		report.WriteString(fmt.Sprintf("- 作者: %s\n", history.GitInfo.Author))
+		report.WriteString(fmt.Sprintf("- 提交信息: %s\n\n", history.GitInfo.CommitMessage))
+	}
+
+	// 统计信息
+	if history.ReviewStats != nil {
+		report.WriteString("## 变更统计\n\n")
+		report.WriteString(fmt.Sprintf("- 变更文件数: %d\n", history.ReviewStats.FilesChanged))
+		report.WriteString(fmt.Sprintf("- 新增行数: %d\n", history.ReviewStats.LinesAdded))
+		report.WriteString(fmt.Sprintf("- 删除行数: %d\n\n", history.ReviewStats.LinesDeleted))
+
+		report.WriteString("### 问题分布\n\n")
+		for level, count := range history.ReviewStats.IssuesByLevel {
+			report.WriteString(fmt.Sprintf("- %s: %d\n", level, count))
+		}
+		report.WriteString("\n")
+	}
+
+	// 评审结果
+	report.WriteString("## 评审详情\n\n")
+	report.WriteString(history.ReviewResult)
+
+	// 时间信息
+	report.WriteString(fmt.Sprintf("\n\n---\n生成时间: %s\n",
+		history.DateTime.Format("2006-01-02 15:04:05")))
+
+	return report.String()
+}
+
+// 保存 Markdown 报告
+func saveMarkdownReport(history *ReviewHistory) error {
+	if config.Output.Format != "markdown" {
+		return nil
+	}
+
+	reportDir := filepath.Join(config.Output.Dir, "reports")
+	if err := os.MkdirAll(reportDir, 0755); err != nil {
+		return err
+	}
+
+	filename := filepath.Join(reportDir,
+		fmt.Sprintf("%s_%s.md", history.DateTime.Format("20060102_150405"), history.ID))
+
+	report := formatMarkdownReport(history)
+	return os.WriteFile(filename, []byte(report), 0644)
+}
+
 func main() {
 	// 加载配置文件
 	err := loadConfig("conf/config.json")
@@ -495,21 +564,32 @@ func main() {
 		DateTime:     time.Now(),
 	}
 
+	// 保存 JSON 历史记录
 	if err := saveReviewHistory(history); err != nil {
 		log.Printf("Failed to save review history: %v", err)
 	}
 
-	// 输出评审结果
-	fmt.Println(reviewResult)
+	// 保存 Markdown 报告
+	if err := saveMarkdownReport(history); err != nil {
+		log.Printf("Failed to save markdown report: %v", err)
+	}
 
-	// 输出统计信息
-	fmt.Printf("\n统计信息:\n")
-	fmt.Printf("- 变更文件数: %d\n", stats.FilesChanged)
-	fmt.Printf("- 新增行数: %d\n", stats.LinesAdded)
-	fmt.Printf("- 删除行数: %d\n", stats.LinesDeleted)
-	fmt.Printf("- 问题分布:\n")
-	for level, count := range stats.IssuesByLevel {
-		fmt.Printf("  - %s: %d\n", level, count)
+	// 根据输出格式选择显示方式
+	if config.Output.Format == "markdown" {
+		fmt.Println(formatMarkdownReport(history))
+	} else {
+		// 输出评审结果
+		fmt.Println(reviewResult)
+
+		// 输出统计信息
+		fmt.Printf("\n统计信息:\n")
+		fmt.Printf("- 变更文件数: %d\n", stats.FilesChanged)
+		fmt.Printf("- 新增行数: %d\n", stats.LinesAdded)
+		fmt.Printf("- 删除行数: %d\n", stats.LinesDeleted)
+		fmt.Printf("- 问题分布:\n")
+		for level, count := range stats.IssuesByLevel {
+			fmt.Printf("  - %s: %d\n", level, count)
+		}
 	}
 
 	// 发送钉钉消息（如果启用）
