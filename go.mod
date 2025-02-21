@@ -1,3 +1,7 @@
-module GPT-CR-Shell-Demo
+module github.com/cr
 
-go 1.23
+go 1.21
+
+require (
+	// 这里添加项目依赖
+)

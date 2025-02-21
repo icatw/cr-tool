@@ -2,7 +2,7 @@ package exporter
 
 import (
 	"fmt"
-	"github.com/your/project/internal/model"
+	"github.com/cr/internal/model"
 )
 
 type Exporter interface {

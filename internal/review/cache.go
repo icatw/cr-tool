@@ -2,7 +2,7 @@ package review
 
 import (
 	"encoding/json"
-	"github.com/your/project/internal/config"
+	"github.com/cr/internal/config"
 	"os"
 	"path/filepath"
 	"time"

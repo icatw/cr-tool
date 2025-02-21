@@ -1,10 +1,11 @@
 package review
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/your/project/internal/model"
+	"github.com/cr/internal/model"
 )
 
 // analyzeStats 分析评审统计信息

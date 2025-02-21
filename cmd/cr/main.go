@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/your/project/internal/config"
-	"github.com/your/project/internal/exporter"
-	"github.com/your/project/internal/review"
+	"github.com/cr/internal/config"
+	"github.com/cr/internal/exporter"
+	"github.com/cr/internal/review"
 )
 
 func main() {
@@ -43,7 +43,7 @@ func main() {
 			continue
 		}
 
-		if err := exp.Export(history); err != nil {
+		if err, _ := exp.Export(history); err != nil {
 			log.Printf("导出失败 (%s): %v", format, err)
 		}
 	}
