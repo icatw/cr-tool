@@ -47,29 +47,6 @@ type ResponseBody struct {
 	} `json:"choices"`
 }
 
-type ReviewResult struct {
-	Summary     string   `json:"summary"`
-	Suggestions []string `json:"suggestions"`
-	Risk        string   `json:"risk"`
-}
-
-// 添加配置验证
-func (c *Config) Validate() error {
-	if c.APIKey == "" {
-		return fmt.Errorf("API key 不能为空")
-	}
-	if c.ModelName == "" {
-		return fmt.Errorf("模型名称不能为空")
-	}
-	if c.BaseURL == "" {
-		return fmt.Errorf("API URL 不能为空")
-	}
-	if c.DingWebhook != "" && c.DingSecret == "" {
-		return fmt.Errorf("配置了钉钉 webhook 但未配置 secret")
-	}
-	return nil
-}
-
 // 加载配置文件
 func loadConfig(filename string) error {
 	file, err := os.Open(filename)
@@ -81,10 +58,6 @@ func loadConfig(filename string) error {
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&config); err != nil {
 		return fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	if err := config.Validate(); err != nil {
-		return fmt.Errorf("配置验证失败: %w", err)
 	}
 	return nil
 }
@@ -144,8 +117,34 @@ func performCodeReview(diffContent string) (string, error) {
 		Model: config.ModelName,
 		Messages: []Message{
 			{
-				Role:    "system",
-				Content: "你是一个高级编程架构师，请根据以下 git diff 内容提供代码评审建议：",
+				Role: "system",
+				Content: `你是一个经验丰富的高级编程架构师，请根据提供的 git diff 内容进行代码评审。
+请按照以下模板格式输出评审结果：
+
+## 代码变更概述
+[简要描述本次代码变更的主要内容]
+
+## 主要问题
+1. [问题1]
+   - 影响: [描述影响]
+   - 建议: [修改建议]
+2. [问题2]
+   ...
+
+## 代码质量评估
+- 可读性: [高/中/低] 
+- 可维护性: [高/中/低]
+- 安全性: [高/中/低]
+
+## 优化建议
+1. [具体的优化建议1]
+2. [具体的优化建议2]
+...
+
+## 其他注意事项
+[其他需要注意的点]
+
+请确保评审意见具体、清晰、可操作。`,
 			},
 			{
 				Role:    "user",
@@ -166,9 +165,7 @@ func performCodeReview(diffContent string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -176,8 +173,7 @@ func performCodeReview(diffContent string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("请求失败，状态码: %d, 响应内容: %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("request failed with status code: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -196,19 +192,6 @@ func performCodeReview(diffContent string) (string, error) {
 	return "No review results returned.", nil
 }
 
-func performCodeReviewWithRetry(diffContent string, maxRetries int) (string, error) {
-	var lastErr error
-	for i := 0; i < maxRetries; i++ {
-		result, err := performCodeReview(diffContent)
-		if err == nil {
-			return result, nil
-		}
-		lastErr = err
-		time.Sleep(time.Second * time.Duration(i+1))
-	}
-	return "", fmt.Errorf("重试 %d 次后仍然失败: %v", maxRetries, lastErr)
-}
-
 func main() {
 	// 加载配置文件
 	err := loadConfig("conf/config.json")
@@ -225,9 +208,9 @@ func main() {
 	// 执行代码评审
 	reviewResult, err := performCodeReview(diffContent.String())
 	if err != nil {
-		log.Printf("代码评审失败: %v", err)
-		fmt.Print("代码评审失败，请检查配置和网络连接\n")
-		os.Exit(1)
+		log.Printf("Code review failed: %v", err)
+		fmt.Print("No valid review result.\n") // 明确的错误输出
+		return
 	}
 
 	// 输出评审结果（仅输出结果内容）
